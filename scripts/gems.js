@@ -18,7 +18,7 @@ export function mountGems(app) {
   };
 
   app.innerHTML = `
-    <section class="panel narrow">
+    <section class="narrow">
       <h2 class="section-title">Gems</h2>
       <div class="grid">
         <div class="panel">
