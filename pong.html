@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pong</title>
+    <link rel="stylesheet" href="styles.css" />
+    <meta
+      name="description"
+      content="Classic Pong game playable in your browser."
+    />
+    <style>
+      /* Lightweight page-specific bits; main theme is in styles.css */
+      .pong-wrapper {
+        display: grid;
+        gap: 16px;
+      }
+      .pong-hud {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      .score {
+        font-size: 18px;
+        font-weight: 700;
+      }
+      .canvas-frame {
+        display: grid;
+        place-items: center;
+        padding: 12px;
+      }
+      canvas {
+        background: radial-gradient(
+            1200px 300px at 50% -50%,
+            rgba(90, 200, 250, 0.06),
+            transparent
+          ),
+          linear-gradient(180deg, var(--panel) 0%, var(--panel-2) 100%);
+        border: 1px solid #232a38;
+        border-radius: 12px;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+      }
+      .help {
+        color: var(--muted);
+        font-size: 13px;
+      }
+    </style>
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="container header-inner">
+        <h1 class="site-title">Pong</h1>
+        <nav class="site-nav" aria-label="Primary">
+          <a href="index.html#" class="nav-link">Home</a>
+          <a href="index.html#/blackjack" class="nav-link">Blackjack</a>
+          <a href="index.html#/highlow" class="nav-link">High-Low</a>
+          <a href="index.html#/gems" class="nav-link">Gems</a>
+          <a href="pong.html" class="nav-link active">Pong</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="container app-root">
+      <section class="panel narrow pong-wrapper">
+        <div class="pong-hud">
+          <div class="score" id="score">0 — 0</div>
+          <div class="message" id="message"></div>
+          <div style="flex: 1"></div>
+          <button id="btn-start" class="primary">Start</button>
+          <button id="btn-pause">Pause</button>
+          <button id="btn-reset" class="danger">Reset</button>
+        </div>
+        <div class="canvas-frame">
+          <canvas
+            id="pong"
+            width="800"
+            height="500"
+            aria-label="Pong game canvas"
+            role="img"
+          ></canvas>
+        </div>
+        <div class="help">
+          <p>
+            Left paddle: <span class="kbd">W</span>/<span class="kbd">S</span>.
+            Right paddle: <span class="kbd">Arrow Up</span>/<span class="kbd"
+              >Arrow Down</span
+            >. <span class="kbd">Space</span> to pause.
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container">
+        <p>Have fun! Classic arcade Pong.</p>
+      </div>
+    </footer>
+
+    <script type="module" src="./scripts/pong.js"></script>
+  </body>
+</html>

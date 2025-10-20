@@ -1,0 +1,517 @@
+/*
+  Global styles and simple playing card UI
+*/
+
+:root {
+  --bg: #0b0e13;
+  --panel: #141922;
+  --panel-2: #1b2230;
+  --text: #e9eef5;
+  --muted: #a9b4c2;
+  --accent: #5ac8fa;
+  --green: #34c759;
+  --red: #ff3b30;
+  --yellow: #ffd60a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu,
+    Cantarell, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji",
+    "Segoe UI Emoji";
+  color: var(--text);
+  background: linear-gradient(180deg, #0b0e13 0%, #0a0d12 100%);
+}
+
+.container {
+  width: 100%;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 16px;
+}
+
+/* Constrain panels so they don't span edge-to-edge visually */
+.narrow {
+  max-width: 900px;
+  margin: 0 auto;
+}
+.panel.narrow {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+/* Compact variant for single-line text sections */
+.compact {
+  max-width: 720px;
+  margin: 0 auto;
+}
+.panel.compact {
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: rgba(10, 13, 18, 0.7);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid #1f2531;
+}
+
+.header-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 64px;
+}
+
+.site-title {
+  font-size: 20px;
+  margin: 0;
+}
+
+.site-nav {
+  display: flex;
+  gap: 12px;
+}
+
+.nav-link {
+  color: var(--text);
+  text-decoration: none;
+  opacity: 0.9;
+  padding: 8px 10px;
+  border-radius: 8px;
+}
+
+.nav-link:hover,
+.nav-link.active {
+  background: var(--panel);
+}
+
+.site-footer {
+  margin-top: 48px;
+  border-top: 1px solid #1f2531;
+  color: var(--muted);
+}
+
+.site-footer .container {
+  padding: 24px 16px;
+}
+
+.app-root {
+  padding: 24px 0 48px;
+}
+
+/* Panels and layout */
+.panel {
+  background: linear-gradient(180deg, var(--panel) 0%, var(--panel-2) 100%);
+  border: 1px solid #232a38;
+  border-radius: 14px;
+  padding: 16px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.grid {
+  display: grid;
+  gap: 16px;
+}
+
+@media (min-width: 900px) {
+  .grid.cols-2 {
+    grid-template-columns: 1fr 1fr;
+  }
+  .grid.cols-3 {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+/* Buttons and inputs */
+button,
+.btn {
+  appearance: none;
+  border: 1px solid #2a3241;
+  background: #1b2230;
+  color: var(--text);
+  border-radius: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+button:hover,
+.btn:hover {
+  background: #232b3b;
+}
+
+button.primary {
+  border-color: #2a3f52;
+  background: #153042;
+  color: #d8f1ff;
+}
+
+button.primary:hover {
+  background: #18364b;
+}
+
+button.success {
+  background: #11331c;
+  border-color: #1f4d2c;
+  color: #d7ffe3;
+}
+button.success:hover {
+  background: #124221;
+}
+button.danger {
+  background: #361416;
+  border-color: #52242a;
+  color: #ffd7da;
+}
+button.danger:hover {
+  background: #45191d;
+}
+
+input[type="number"],
+input[type="text"] {
+  background: #111722;
+  border: 1px solid #273143;
+  color: var(--text);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 14px;
+}
+
+label {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.section-title {
+  margin: 0 0 10px 0;
+  font-size: 16px;
+}
+
+/* Playing cards */
+.cards {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.card {
+  width: 64px;
+  height: 90px;
+  background: #fff;
+  border: 1px solid #d6d9df;
+  border-radius: 10px;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #0e1116;
+  position: relative;
+  font-weight: 700;
+  user-select: none;
+}
+
+.card.small {
+  width: 48px;
+  height: 68px;
+}
+
+.card.red {
+  color: #b00020;
+}
+
+.card .rank {
+  font-size: 18px;
+}
+
+.card .suit {
+  font-size: 22px;
+  margin-left: 4px;
+}
+
+.card .corner {
+  position: absolute;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.card .corner.tl {
+  top: 6px;
+  left: 6px;
+}
+.card .corner.br {
+  bottom: 6px;
+  right: 6px;
+  transform: rotate(180deg);
+}
+
+.card.back {
+  background: repeating-linear-gradient(
+    45deg,
+    #224,
+    #224 6px,
+    #113 6px,
+    #113 12px
+  );
+  border-color: #112;
+  color: transparent;
+}
+
+/* Rare card visuals */
+.card.gold {
+  background: linear-gradient(
+    135deg,
+    #fff7dc 0%,
+    #ffe082 40%,
+    #ffd54f 60%,
+    #fff7dc 100%
+  );
+  border-color: #d1a936;
+  box-shadow: 0 6px 18px rgba(255, 193, 7, 0.35);
+  position: relative;
+}
+.card.gold::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    110deg,
+    transparent 40%,
+    rgba(255, 255, 255, 0.35) 50%,
+    transparent 60%
+  );
+  mix-blend-mode: screen;
+  animation: shimmer 2.2s linear infinite;
+}
+.card.rare-diamond {
+  background: linear-gradient(
+    135deg,
+    #f0f7ff 0%,
+    #c1e4ff 40%,
+    #8fd6ff 60%,
+    #f0f7ff 100%
+  );
+  border-color: #5ac8fa;
+  box-shadow: 0 6px 18px rgba(90, 200, 250, 0.35);
+  position: relative;
+}
+.card.rare-diamond::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+      300px 40px at 20% 0%,
+      rgba(255, 255, 255, 0.5),
+      transparent
+    ),
+    radial-gradient(
+      300px 40px at 80% 100%,
+      rgba(255, 255, 255, 0.5),
+      transparent
+    );
+  mix-blend-mode: screen;
+  animation: shimmer 3s linear infinite reverse;
+}
+@keyframes shimmer {
+  0% {
+    transform: translateX(-10%);
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(10%);
+    opacity: 0.6;
+  }
+}
+
+/* Blackjack layout */
+.blackjack .hud {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.blackjack .table {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 900px) {
+  .blackjack .table {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.hand-panel {
+  padding: 12px;
+}
+
+.hand-header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.totals {
+  color: var(--muted);
+  font-size: 13px;
+}
+.message {
+  margin-top: 8px;
+  min-height: 20px;
+}
+
+.controls {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* High-Low */
+.highlow .board {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: 1fr;
+}
+
+.highlow .centered {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+}
+
+.kbd {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+  background: #0f1520;
+  padding: 2px 6px;
+  border: 1px solid #253045;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+/* --- Enhancements & animations --- */
+/* Active nav underline */
+.nav-link {
+  position: relative;
+}
+.nav-link::after {
+  content: "";
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 4px;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  opacity: 0;
+  transform: scaleX(0.5);
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+.nav-link:hover::after,
+.nav-link.active::after {
+  opacity: 1;
+  transform: scaleX(1);
+}
+
+/* Buttons micro-interactions */
+button,
+.btn {
+  transition: background 0.2s ease, transform 0.06s ease, box-shadow 0.2s ease;
+}
+button:active,
+.btn:active {
+  transform: translateY(1px);
+}
+.nav-link:focus-visible,
+button:focus-visible,
+.btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Messages with states */
+.message {
+  transition: color 0.2s ease, opacity 0.2s ease;
+}
+.message.is-success {
+  color: var(--green);
+}
+.message.is-danger {
+  color: var(--red);
+}
+.message.is-warning {
+  color: var(--yellow);
+}
+.message.is-info {
+  color: var(--accent);
+}
+
+/* Card animations */
+@keyframes card-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.card {
+  animation: card-in 0.22s ease-out both;
+  animation-delay: calc(var(--i, 0) * 60ms);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.card:hover {
+  transform: translateY(-2px) rotate(0.5deg);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.35);
+}
+
+/* Blackjack felt accent */
+.blackjack .hand-panel {
+  background: radial-gradient(
+      1200px 300px at 50% -50%,
+      rgba(52, 199, 89, 0.08),
+      transparent
+    ),
+    linear-gradient(180deg, var(--panel) 0%, var(--panel-2) 100%);
+}
+
+/* Responsive tweaks */
+@media (max-width: 480px) {
+  .card {
+    width: 56px;
+    height: 80px;
+  }
+  .card.small {
+    width: 42px;
+    height: 60px;
+  }
+  .site-title {
+    font-size: 18px;
+  }
+}
