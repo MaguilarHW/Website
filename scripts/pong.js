@@ -81,13 +81,22 @@ function updateScore() {
 // Input handling
 const keys = new Set();
 window.addEventListener("keydown", (e) => {
-  if (["ArrowUp", "ArrowDown", " ", "Space"].includes(e.key))
-    e.preventDefault();
-  keys.add(e.key);
-  if (e.key === " ") togglePause();
+  const key = e.key;
+  const code = e.code || "";
+  const isSpace = key === " " || key === "Spacebar" || code === "Space";
+  const isArrowUp = key === "ArrowUp" || key === "Up" || code === "ArrowUp";
+  const isArrowDown =
+    key === "ArrowDown" || key === "Down" || code === "ArrowDown";
+  if (isSpace || isArrowUp || isArrowDown) e.preventDefault();
+  keys.add(key);
+  if (code) keys.add(code);
+  if (isSpace && !e.repeat) togglePause();
 });
 window.addEventListener("keyup", (e) => {
-  keys.delete(e.key);
+  const key = e.key;
+  const code = e.code || "";
+  keys.delete(key);
+  if (code) keys.delete(code);
 });
 
 btnStart.addEventListener("click", () => startMatch());
@@ -115,6 +124,13 @@ function togglePause() {
   }
 }
 
+function ensurePaused() {
+  if (state.running && !state.paused) {
+    state.paused = true;
+    messageEl.textContent = "Paused";
+  }
+}
+
 function loop(now) {
   if (!state.running || state.paused) return;
   const dt = Math.min(0.033, (now - state.lastTime) / 1000);
@@ -130,10 +146,10 @@ function clamp(value, min, max) {
 
 function update(dt) {
   // Player input: left paddle W/S; right paddle arrows
-  const upL = keys.has("w") || keys.has("W");
-  const dnL = keys.has("s") || keys.has("S");
-  const upR = keys.has("ArrowUp");
-  const dnR = keys.has("ArrowDown");
+  const upL = keys.has("KeyW") || keys.has("w") || keys.has("W");
+  const dnL = keys.has("KeyS") || keys.has("s") || keys.has("S");
+  const upR = keys.has("ArrowUp") || keys.has("Up");
+  const dnR = keys.has("ArrowDown") || keys.has("Down");
 
   state.left.vy = (upL ? -1 : 0) + (dnL ? 1 : 0);
   state.right.vy = (upR ? -1 : 0) + (dnR ? 1 : 0);
@@ -291,6 +307,16 @@ function resizeCanvasToContainer() {
 }
 
 window.addEventListener("resize", resizeCanvasToContainer);
+window.addEventListener("blur", () => {
+  keys.clear();
+  ensurePaused();
+});
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    keys.clear();
+    ensurePaused();
+  }
+});
 resizeCanvasToContainer();
 
 // Initial frame
