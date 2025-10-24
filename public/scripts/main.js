@@ -3,6 +3,7 @@
 import { mountBlackjack } from "./blackjack.js";
 import { mountHighLow } from "./highlow.js";
 import { mountGems } from "./gems.js";
+import { mountAPChem } from "./apchem.js";
 
 const app = document.getElementById("app");
 let currentCleanup = null;
@@ -112,6 +113,8 @@ function router() {
     renderCompendium();
   } else if (route === "gems") {
     renderGems();
+  } else if (route === "apchem") {
+    currentCleanup = mountAPChem(app) || null;
   } else {
     app.innerHTML = `<section class="panel compact"><h2 class="section-title">Not Found</h2><p>That page does not exist.</p></section>`;
   }

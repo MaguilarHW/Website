@@ -515,3 +515,226 @@ button:focus-visible,
     font-size: 18px;
   }
 }
+
+/* =============================
+   Jon Bois multimedia aesthetic
+   ============================= */
+/* Theme hook on <body class="theme-jb">. All overrides are opt-in and non-destructive. */
+
+body.theme-jb {
+  --jb-bg: #000;
+  --jb-text: #f5f7fa;
+  --jb-muted: #9aa4b2;
+  --jb-accent: #ffd400; /* warm scoreboard yellow */
+  --jb-accent-2: #00e0ff; /* cyan caption */
+  --jb-red: #ff3b30;
+  --jb-panel: #0a0a0a;
+  --jb-panel-2: #101010;
+  color: var(--jb-text);
+  background: var(--jb-bg);
+}
+
+/* Global typography: loud headline + mono details */
+body.theme-jb {
+  font-family: "Inter", ui-sans-serif, system-ui, -apple-system, Segoe UI,
+    Roboto, Ubuntu, Cantarell, "Helvetica Neue", Arial, "Noto Sans";
+}
+body.theme-jb .site-title,
+body.theme-jb h1,
+body.theme-jb h2,
+body.theme-jb h3 {
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+body.theme-jb h1.site-title {
+  font-size: 28px;
+  text-transform: uppercase;
+}
+body.theme-jb .muted,
+body.theme-jb label,
+body.theme-jb .totals {
+  color: var(--jb-muted);
+}
+body.theme-jb .caption,
+body.theme-jb .kbd {
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco,
+    Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+/* Header: stronger bars and ticker underline */
+body.theme-jb .site-header {
+  background: rgba(0, 0, 0, 0.72);
+  border-bottom: 2px solid #1b1b1b;
+}
+body.theme-jb .site-title {
+  color: var(--jb-text);
+}
+body.theme-jb .site-nav .nav-link {
+  color: var(--jb-text);
+  padding: 10px 12px;
+}
+body.theme-jb .site-nav .nav-link::after {
+  left: 12px;
+  right: 12px;
+  bottom: 6px;
+  height: 3px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--jb-accent),
+    transparent
+  );
+}
+
+/* Panels: stark, documentary blocks */
+body.theme-jb .panel {
+  background: linear-gradient(
+    180deg,
+    var(--jb-panel) 0%,
+    var(--jb-panel-2) 100%
+  );
+  border: 1px solid #1a1a1a;
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.02);
+}
+
+/* Grid spacing more cinematic */
+body.theme-jb .grid {
+  gap: 22px;
+}
+body.theme-jb .app-root {
+  padding: 32px 0 64px;
+}
+
+/* Buttons: blocky CTA with yellow focus */
+body.theme-jb button,
+body.theme-jb .btn {
+  border: 1px solid #2a2a2a;
+  background: #121212;
+  border-radius: 8px;
+  font-weight: 600;
+}
+body.theme-jb button.primary,
+body.theme-jb .btn.primary {
+  background: #141414;
+  border-color: #333;
+  color: #111;
+  position: relative;
+}
+body.theme-jb .btn.primary {
+  color: #000;
+  background: linear-gradient(180deg, #ffe34d 0%, #ffd400 100%);
+  border-color: #e0b700;
+}
+body.theme-jb .btn.primary:hover {
+  filter: brightness(1.05);
+}
+body.theme-jb .btn:hover {
+  background: #171717;
+}
+body.theme-jb .nav-link:focus-visible,
+body.theme-jb button:focus-visible,
+body.theme-jb .btn:focus-visible {
+  outline: 2px solid var(--jb-accent);
+}
+
+/* Cards: higher contrast faces */
+body.theme-jb .card {
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.55);
+}
+body.theme-jb .card.red {
+  color: #c1121f;
+}
+body.theme-jb .card.back {
+  background: repeating-linear-gradient(
+    45deg,
+    #171717,
+    #171717 6px,
+    #0f0f0f 6px,
+    #0f0f0f 12px
+  );
+  border-color: #0c0c0c;
+}
+
+/* HUD and headings: loud labels reminiscent of digital scoreboards */
+body.theme-jb .section-title {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 800;
+}
+
+/* Multimedia overlays: scanlines + vignette */
+body.theme-jb::before,
+body.theme-jb::after {
+  content: "";
+  position: fixed;
+  pointer-events: none;
+  inset: 0;
+  z-index: 0;
+}
+/* subtle scanlines */
+body.theme-jb::before {
+  background-image: linear-gradient(
+    rgba(255, 255, 255, 0.03) 1px,
+    transparent 1px
+  );
+  background-size: 100% 3px;
+  mix-blend-mode: overlay;
+}
+/* dark vignette */
+body.theme-jb::after {
+  background: radial-gradient(
+      1200px 600px at 50% -20%,
+      rgba(255, 212, 0, 0.06),
+      transparent 60%
+    ),
+    radial-gradient(
+      1000px 200px at 50% 110%,
+      rgba(0, 224, 255, 0.06),
+      transparent 60%
+    ),
+    radial-gradient(
+      120% 120% at 50% 50%,
+      transparent 55%,
+      rgba(0, 0, 0, 0.65) 100%
+    );
+}
+
+/* Caption callouts, like lower-thirds */
+body.theme-jb .callout {
+  position: relative;
+  border: 2px solid #1f1f1f;
+  border-radius: 10px;
+  padding: 14px 16px;
+  background: #0d0d0d;
+}
+body.theme-jb .callout .label {
+  display: inline-block;
+  background: var(--jb-accent);
+  color: #000;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 3px 8px;
+  border-radius: 6px;
+  margin-bottom: 8px;
+}
+body.theme-jb .caption {
+  color: var(--jb-accent-2);
+  font-size: 13px;
+}
+
+/* Footer: documentary credits vibe */
+body.theme-jb .site-footer {
+  border-top: 1px solid #1a1a1a;
+  color: var(--jb-muted);
+}
+
+/* Ensure content sits above overlays */
+body.theme-jb .site-header,
+body.theme-jb .app-root,
+body.theme-jb .site-footer {
+  position: relative;
+  z-index: 1;
+}
