@@ -516,6 +516,105 @@ button:focus-visible,
   }
 }
 
+/* Landing deck (home) */
+.landing {
+  min-height: calc(100vh - 160px);
+  display: grid;
+  align-items: center;
+  justify-items: center;
+  gap: 10px;
+}
+.landing .landing-inner {
+  display: grid;
+  justify-items: center;
+}
+.landing .landing-title {
+  margin: 0 0 8px 0;
+  font-size: 20px;
+}
+.deck {
+  position: relative;
+  width: clamp(130px, 29vw, 220px);
+  aspect-ratio: 63 / 88;
+  perspective: 1200px;
+  cursor: grab;
+}
+.deck:active {
+  cursor: grabbing;
+}
+.deck-card {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  transform-origin: 50% 85%;
+  transition: transform 0.28s ease, filter 0.18s ease, opacity 0.22s ease;
+  will-change: transform;
+  width: 100%;
+  height: 100%;
+}
+.deck-card.is-top {
+  filter: drop-shadow(0 12px 28px rgba(0, 0, 0, 0.45));
+}
+.deck-card.is-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+.deck .game-card {
+  width: 100%;
+  height: 100%;
+  border-radius: 16px;
+  background: #fff;
+  border: 2px solid #d6d9df;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.35);
+}
+/* Ensure back pattern overrides face for non-top cards */
+.deck .game-card.back {
+  background: repeating-linear-gradient(
+    45deg,
+    #224,
+    #224 6px,
+    #113 6px,
+    #113 12px
+  );
+  border-color: #112;
+  color: transparent;
+}
+.game-card .center {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  padding: 18px;
+}
+.game-card .game-title {
+  font-weight: 800;
+  font-size: clamp(14px, 2.6vw, 18px);
+  letter-spacing: -0.02em;
+}
+.game-card .subtitle {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+/* Ensure corners are visible on large cards */
+.game-card .corner {
+  font-size: clamp(10px, 1.4vw, 12px);
+}
+.deck-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+.deck-controls .btn {
+  min-width: 42px;
+}
+.deck-hint {
+  margin-top: 6px;
+}
+
 /* =============================
    Jon Bois multimedia aesthetic
    ============================= */
@@ -729,6 +828,65 @@ body.theme-jb .caption {
 body.theme-jb .site-footer {
   border-top: 1px solid #1a1a1a;
   color: var(--jb-muted);
+}
+/* MV Calc layout */
+.mvcalc .mvcalc-wrap {
+  display: grid;
+  grid-template-columns: 320px 1fr 320px;
+  gap: 16px;
+}
+.mvcalc .mvcalc-left,
+.mvcalc .mvcalc-right {
+  background: #0f1420;
+  border: 1px solid #202838;
+  border-radius: 12px;
+  padding: 12px;
+}
+.mvcalc .mv3d {
+  width: 100%;
+  height: 540px;
+  display: block;
+  background: linear-gradient(180deg, #0c121d 0%, #0a0f19 100%);
+  border: 1px solid #1e2738;
+  border-radius: 12px;
+}
+.mvcalc .mv3d-wrap {
+  position: relative;
+}
+.mvcalc .mv3d-overlay {
+  position: absolute;
+  left: 10px;
+  top: 10px;
+  color: #a9b4c2;
+  font-size: 12px;
+  pointer-events: none;
+}
+.mvcalc .row.three {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+}
+.mvcalc .steps {
+  margin: 6px 0 0 18px;
+  padding: 0;
+  font-size: 14px;
+}
+.mvcalc .formula {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+  font-size: 13px;
+  background: #0c121d;
+  border: 1px solid #1e2738;
+  border-radius: 10px;
+  padding: 10px;
+}
+@media (max-width: 1100px) {
+  .mvcalc .mvcalc-wrap {
+    grid-template-columns: 1fr;
+  }
+  .mvcalc .mv3d {
+    height: 480px;
+  }
 }
 
 /* Ensure content sits above overlays */
