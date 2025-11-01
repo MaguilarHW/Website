@@ -3,11 +3,21 @@
    - Built-in specs: glucose (pyranose), fructose (furanose), DMSO, hexane
 */
 
+function cssVar(name, fallback) {
+  const cs = getComputedStyle(document.body);
+  const v = cs.getPropertyValue(name);
+  return v && v.trim().length ? v.trim() : fallback;
+}
+
 function colorFor(el) {
-  if (el === "O") return "#ff7a7a";
-  if (el === "S") return "#ffd24d";
-  if (el === "H") return "#cfd8e3";
-  return "#d0d8e6"; // C default
+  const oxygen = cssVar("--red", "#ff7a7a");
+  const sulfur = cssVar("--yellow", "#ffd24d");
+  const hydrogen = cssVar("--muted", "#cfd8e3");
+  const carbon = cssVar("--panel-2", "#d0d8e6");
+  if (el === "O") return oxygen;
+  if (el === "S") return sulfur;
+  if (el === "H") return hydrogen;
+  return carbon;
 }
 
 function line(svg, x1, y1, x2, y2, opts = {}) {
@@ -38,7 +48,7 @@ function text(svg, x, y, value, opts = {}) {
   const e = document.createElementNS("http://www.w3.org/2000/svg", "text");
   e.setAttribute("x", String(x));
   e.setAttribute("y", String(y));
-  e.setAttribute("fill", opts.fill || "#e9eef5");
+  e.setAttribute("fill", opts.fill || cssVar("--text", "#e9eef5"));
   e.setAttribute("font-size", String(opts.size || 16));
   e.setAttribute(
     "font-family",
@@ -50,31 +60,33 @@ function text(svg, x, y, value, opts = {}) {
   return e;
 }
 
-function drawBond(svg, a, b, order = 1) {
+function drawBond(svg, a, b, order = 1, opts = {}) {
   const dx = b.x - a.x;
   const dy = b.y - a.y;
   const L = Math.hypot(dx, dy);
   const nx = -dy / (L || 1);
   const ny = dx / (L || 1);
   const w = 3;
+  const strokeBase = opts.stroke || cssVar("--text", "#0e1116");
+  const strokeUnder = opts.strokeUnder || cssVar("--panel-2", "#cbd5e1");
   if (order === 1) {
     line(svg, a.x, a.y, b.x, b.y, {
-      stroke: "#cbd5e1",
+      stroke: strokeUnder,
       width: w + 1,
       opacity: 0.9,
     });
-    line(svg, a.x, a.y, b.x, b.y, { stroke: "#e9eef5", width: w });
+    line(svg, a.x, a.y, b.x, b.y, { stroke: strokeBase, width: w });
   } else if (order === 2) {
     line(svg, a.x + nx * 3, a.y + ny * 3, b.x + nx * 3, b.y + ny * 3, {
-      stroke: "#e9eef5",
+      stroke: strokeBase,
       width: w,
     });
     line(svg, a.x - nx * 3, a.y - ny * 3, b.x - nx * 3, b.y - ny * 3, {
-      stroke: "#e9eef5",
+      stroke: strokeBase,
       width: w,
     });
   } else {
-    line(svg, a.x, a.y, b.x, b.y, { stroke: "#e9eef5", width: w });
+    line(svg, a.x, a.y, b.x, b.y, { stroke: strokeBase, width: w });
   }
 }
 
@@ -92,37 +104,35 @@ function drawSpec(svg, spec, opts = {}) {
   (spec.bonds || []).forEach((b) => {
     const a = atoms[b.a];
     const c = atoms[b.b];
-    drawBond(svg, a, c, b.order || 1);
+    drawBond(svg, a, c, b.order || 1, opts);
   });
   // Atoms
   atoms.forEach((a) => {
     if (a.el !== "C") circle(svg, a.x, a.y, 4.5, colorFor(a.el));
     if (a.label)
-      text(svg, a.x + 6, a.y - 6, a.label, { size: 13, fill: colorFor(a.el) });
+      text(svg, a.x + 6, a.y - 6, a.label, {
+        size: 13,
+        fill: opts.labelColor || colorFor(a.el),
+      });
   });
   // Annotations
   (spec.annotations || []).forEach((ann) => {
     if (ann.type === "delta")
       text(svg, ann.x * scale + ox, ann.y * scale + oy, ann.text, {
         size: 14,
-        fill: ann.color || "#ffd60a",
+        fill: ann.color || cssVar("--yellow", "#ffd60a"),
       });
     if (ann.type === "arrow") {
+      const c = ann.color || cssVar("--yellow", "#ffd60a");
       line(
         svg,
         ann.x1 * scale + ox,
         ann.y1 * scale + oy,
         ann.x2 * scale + ox,
         ann.y2 * scale + oy,
-        { stroke: ann.color || "#ffd60a", width: 2 }
+        { stroke: c, width: 2 }
       );
-      circle(
-        svg,
-        ann.x2 * scale + ox,
-        ann.y2 * scale + oy,
-        2.4,
-        ann.color || "#ffd60a"
-      );
+      circle(svg, ann.x2 * scale + ox, ann.y2 * scale + oy, 2.4, c);
     }
     if (ann.type === "hbond") {
       line(
@@ -131,7 +141,11 @@ function drawSpec(svg, spec, opts = {}) {
         ann.y1 * scale + oy,
         ann.x2 * scale + ox,
         ann.y2 * scale + oy,
-        { stroke: ann.color || "#8ab6ff", width: 2, opacity: 0.6 }
+        {
+          stroke: ann.color || cssVar("--accent", "#8ab6ff"),
+          width: 2,
+          opacity: 0.6,
+        }
       );
     }
   });

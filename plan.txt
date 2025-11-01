@@ -1,0 +1,6 @@
+Using the style guide outlined here: @https://learnhw.web.app/admin make a new widget in a new tab called "IMFs" that covers intermolecular forces in an intuitive manner. Using a dynamic particle simulation, I want the user to experience the IMFs within h-bonded honey, a liquid that experiences dipole-dipole interaction, and hexane. Each particle sim (accessible via a series of buttons) should have a js-coded closeup of the molecule next to it for context on why the molecule has certain bonds 
+
+In response to it's questions (because I used plan mode)
+
+1) DMSO instead, as it's viscousity is medium
+2) perhaps, show a fructose and glucose molecule next to each other and include some text explaining it. I need you to develop a high fildelity and scalable way of showing molecules developed just for this website and has good details. Each molecule should look very nice  
