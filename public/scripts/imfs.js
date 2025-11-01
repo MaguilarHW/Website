@@ -56,10 +56,15 @@ class NeighborGrid {
     for (let i = 0; i < this.cells.length; i++) this.cells[i] = undefined;
   }
   cellIndex(x, y) {
-    const cx =
-      ((Math.floor(x / this.cellSize) % this.cols) + this.cols) % this.cols;
-    const cy =
-      ((Math.floor(y / this.cellSize) % this.rows) + this.rows) % this.rows;
+    // Clamp to valid grid bounds (no wrapping)
+    const cx = Math.max(
+      0,
+      Math.min(this.cols - 1, Math.floor(x / this.cellSize))
+    );
+    const cy = Math.max(
+      0,
+      Math.min(this.rows - 1, Math.floor(y / this.cellSize))
+    );
     return cy * this.cols + cx;
   }
   insert(particle) {
@@ -75,8 +80,9 @@ class NeighborGrid {
     const maxCy = Math.floor((y + r) / this.cellSize);
     for (let cy = minCy; cy <= maxCy; cy++) {
       for (let cx = minCx; cx <= maxCx; cx++) {
-        const ix = ((cx % this.cols) + this.cols) % this.cols;
-        const iy = ((cy % this.rows) + this.rows) % this.rows;
+        if (cx < 0 || cx >= this.cols || cy < 0 || cy >= this.rows) continue;
+        const ix = cx;
+        const iy = cy;
         const idx = iy * this.cols + ix;
         const cell = this.cells[idx];
         if (!cell) continue;
@@ -94,10 +100,12 @@ function makeParticle(x, y, kind) {
     angle: Math.random() * Math.PI * 2,
     angVel: randRange(-2, 2),
     mass: 1,
-    radius: 6,
+    radius: 3, // Reduced by 50% from 6
     state: "liquid",
     gasUntil: 0,
     localNeighbors: 0,
+    thermalEnergy: 0, // 0-1, accumulates when heated
+    lastStateChange: 0, // timestamp of last state change
   };
 }
 
@@ -153,7 +161,7 @@ class IMFSim {
     this.grid = new NeighborGrid(this.width, this.height, 24);
     this.lastMs = 0;
     this.frameId = 0;
-    this.gravityOn = false;
+    this.gravityOn = true;
     this.contourOn = false;
     this.shadeContour = true;
     this.lastThermoMs = 0;
@@ -216,10 +224,7 @@ class IMFSim {
 
   // Periodic wrap
   wrap(p) {
-    if (p.pos[0] < 0) p.pos[0] += this.width;
-    if (p.pos[0] >= this.width) p.pos[0] -= this.width;
-    if (p.pos[1] < 0) p.pos[1] += this.height;
-    if (p.pos[1] >= this.height) p.pos[1] -= this.height;
+    // disabled; using wall collisions instead
   }
 
   // Lennard–Jones force (soft-capped)
@@ -282,19 +287,24 @@ class IMFSim {
       const densityCut = 2.4 * this.params.sigma;
       this.grid.forNeighbors(ax, ay, rMax, (b) => {
         if (a === b) return;
-        // Minimum image under periodic boundaries
         let dx = b.pos[0] - ax;
         let dy = b.pos[1] - ay;
-        if (dx > this.width / 2) dx -= this.width;
-        if (dx < -this.width / 2) dx += this.width;
-        if (dy > this.height / 2) dy -= this.height;
-        if (dy < -this.height / 2) dy += this.height;
         const rVec = [dx, dy];
         const dist = Math.hypot(dx, dy);
         if (dist < densityCut) a.localNeighbors++;
+        // Strengthen liquid-liquid interactions, weaken gas interactions
+        const bothLiquid = a.state === "liquid" && b.state === "liquid";
         const gasScale = a.state === "gas" || b.state === "gas" ? 0.2 : 1.0;
-        const fLJ = vMul(this.ljForce(rVec), this.params.cohLJ || 1);
-        const fHB = vMul(this.hbForce(rVec), this.params.cohHB || 1);
+        const liquidCohesionBoost = bothLiquid ? 1.3 : 1.0; // 30% stronger for liquid-liquid
+
+        const fLJ = vMul(
+          this.ljForce(rVec),
+          (this.params.cohLJ || 1) * liquidCohesionBoost
+        );
+        const fHB = vMul(
+          this.hbForce(rVec),
+          (this.params.cohHB || 1) * liquidCohesionBoost
+        );
         const fDP = vMul(this.dipoleForce(rVec), this.params.cohDP || 1);
         const f = vAdd(
           vAdd(vMul(fLJ, gasScale), vMul(fHB, gasScale)),
@@ -313,29 +323,44 @@ class IMFSim {
       p.acc[1] += -gamma * p.vel[1] + randNorm() * kickSigma;
     }
     // Gentle velocity rescale toward target KE every ~0.5s
+    // Skip dense liquid particles to preserve blob structure
     const nowT = performance.now();
     if (!this.lastThermoMs) this.lastThermoMs = nowT;
     if (nowT - this.lastThermoMs > 500) {
       let keSum = 0;
+      let count = 0;
+      const rhoMin = 3; // Same threshold as state transitions
+
+      // Only consider non-dense particles for thermostat
       for (let i = 0; i < this.particles.length; i++) {
         const p = this.particles[i];
-        keSum +=
-          0.5 * (p.mass || 1) * (p.vel[0] * p.vel[0] + p.vel[1] * p.vel[1]);
+        // Skip particles in dense liquid blob (they maintain their own dynamics)
+        if (p.localNeighbors < rhoMin || p.state === "gas") {
+          keSum +=
+            0.5 * (p.mass || 1) * (p.vel[0] * p.vel[0] + p.vel[1] * p.vel[1]);
+          count++;
+        }
       }
-      const n = Math.max(1, this.particles.length);
-      const keAvg = keSum / n;
-      const keTarget = 40 * (kT + 0.05);
-      const s = Math.max(
-        0.9,
-        Math.min(
-          1.1,
-          Math.sqrt(Math.max(1e-6, keTarget / Math.max(1e-6, keAvg)))
-        )
-      );
-      if (Math.abs(s - 1) > 0.02) {
-        for (let i = 0; i < this.particles.length; i++) {
-          this.particles[i].vel[0] *= s;
-          this.particles[i].vel[1] *= s;
+
+      if (count > 0) {
+        const keAvg = keSum / count;
+        const keTarget = 40 * (kT + 0.05);
+        const s = Math.max(
+          0.9,
+          Math.min(
+            1.1,
+            Math.sqrt(Math.max(1e-6, keTarget / Math.max(1e-6, keAvg)))
+          )
+        );
+        if (Math.abs(s - 1) > 0.02) {
+          // Only rescale non-dense particles
+          for (let i = 0; i < this.particles.length; i++) {
+            const p = this.particles[i];
+            if (p.localNeighbors < rhoMin || p.state === "gas") {
+              p.vel[0] *= s;
+              p.vel[1] *= s;
+            }
+          }
         }
       }
       this.lastThermoMs = nowT;
@@ -343,84 +368,332 @@ class IMFSim {
   }
 
   step(dt) {
-    // Forces
-    this.computeForces(dt);
-    // Gravity
+    let substeps = 1;
     if (this.gravityOn) {
-      const g = 900; // px/s^2
-      for (let i = 0; i < this.particles.length; i++)
-        this.particles[i].acc[1] += g;
-    }
-    // External heating: accelerate along current velocity direction
-    if (this.heatingOn) {
-      const aH = this.heatAccel;
+      let maxSpeed = 0;
       for (let i = 0; i < this.particles.length; i++) {
         const p = this.particles[i];
-        const vx = p.vel[0],
-          vy = p.vel[1];
-        const sp = Math.hypot(vx, vy);
-        if (sp > 1e-3) {
-          p.acc[0] += (vx / sp) * aH;
-          p.acc[1] += (vy / sp) * aH;
-        } else {
-          // randomize direction if at rest
-          const ang = Math.random() * Math.PI * 2;
-          p.acc[0] += Math.cos(ang) * aH;
-          p.acc[1] += Math.sin(ang) * aH;
-        }
+        const sp = Math.hypot(p.vel[0], p.vel[1]);
+        if (sp > maxSpeed) maxSpeed = sp;
       }
+      const minR = 0.5 * (this.particles[0]?.radius || 3);
+      const safeDisp = Math.max(2, minR); // pixels
+      substeps = Math.min(
+        12,
+        Math.max(2, Math.ceil((maxSpeed * dt) / safeDisp))
+      );
     }
-    // Gas buoyancy (if gravity on): help gas rise
-    if (this.gravityOn) {
-      for (let i = 0; i < this.particles.length; i++) {
-        const p = this.particles[i];
-        if (p.state === "gas") p.acc[1] -= 600;
+    const dtStep = dt / substeps;
+    for (let s = 0; s < substeps; s++) {
+      // Forces
+      this.computeForces(dtStep);
+      // Gravity
+      if (this.gravityOn) {
+        const g = 900;
+        for (let i = 0; i < this.particles.length; i++)
+          this.particles[i].acc[1] += g;
       }
-    }
-    // Integrate
-    for (let i = 0; i < this.particles.length; i++) {
-      const p = this.particles[i];
-      p.vel[0] += (p.acc[0] / p.mass) * dt;
-      p.vel[1] += (p.acc[1] / p.mass) * dt;
-      p.pos[0] += p.vel[0] * dt;
-      p.pos[1] += p.vel[1] * dt;
-      if (this.gravityOn) this.handleWalls(p);
-      else this.wrap(p);
-    }
-    // Gas/liquid state hysteresis based on kinetic energy and local density
-    const epsBase = 0.15 + 0.25 * (this.params.viscosity || 0);
-    const c1 = 120,
-      c2 = 10; // thresholds tuning factors
-    const rhoMin = 3; // neighbor count threshold
-    const nowS = performance.now();
-    for (let i = 0; i < this.particles.length; i++) {
-      const p = this.particles[i];
-      const v2 = p.vel[0] * p.vel[0] + p.vel[1] * p.vel[1];
-      const vGas2 = c1 * (this.params.kT || 0) + c2 * epsBase;
-      if (p.state === "liquid") {
-        if (v2 > vGas2 && p.localNeighbors < rhoMin) {
-          p.state = "gas";
-          p.gasUntil = nowS + 1500;
+      // Heating (bottom 10% of container with gradient - stovetop simulation)
+      if (this.heatingOn) {
+        const aH = this.heatAccel;
+        const heatingZoneHeight = this.height * 0.1; // bottom 10% of container
+        const heatingZoneTop = this.height - heatingZoneHeight;
+        const minHeatIntensity = 0.2; // 20% heat at the 10% mark (top of heating zone)
+        const thermalGainRate = 0.03; // Reduced from 0.1 - slower, more realistic heating rate per second
+        const thermalDissipationRate = 0.015; // Rate per second for dissipation
+
+        // Create non-uniform heating pattern along X-axis (hotspots like real stovetop)
+        // Use multiple hotspots with varying intensities
+        const hotspotCount = 3; // Number of hotspots
+        const hotspotSpacing = this.width / (hotspotCount + 1);
+
+        for (let i = 0; i < this.particles.length; i++) {
+          const p = this.particles[i];
+          // Ensure thermalEnergy is initialized
+          if (p.thermalEnergy === undefined) p.thermalEnergy = 0;
+
+          const r = p.radius || 3;
+          const particleBottom = p.pos[1] + r; // bottom edge of particle
+          const particleX = p.pos[0]; // X position for hotspot calculation
+
+          // Only heat particles in the bottom 10% of container
+          if (particleBottom >= heatingZoneTop) {
+            // Calculate normalized position in heating zone (0 = very bottom, 1 = 10% mark)
+            const distFromBottom = this.height - particleBottom;
+            const normalizedDist = Math.max(
+              0,
+              Math.min(1, distFromBottom / heatingZoneHeight)
+            );
+
+            // Vertical gradient: 100% heat at bottom, minHeatIntensity at 10% mark
+            const verticalIntensity =
+              1.0 - normalizedDist * (1.0 - minHeatIntensity);
+
+            // Calculate horizontal hotspot intensity (non-uniform along X-axis)
+            // Use smooth falloff to reduce visual artifacts
+            let horizontalIntensity = 0.3; // Base intensity (minimum)
+            let totalHotspotContribution = 0;
+            let weightedStrength = 0;
+
+            // Check distance to each hotspot and accumulate contributions smoothly
+            for (let h = 0; h < hotspotCount; h++) {
+              const hotspotX = hotspotSpacing * (h + 1);
+              const distToHotspot = Math.abs(particleX - hotspotX);
+              const hotspotRadius = this.width * 0.15; // Hotspot influence radius
+
+              // Smooth exponential falloff (squared for smoother transition)
+              const normalizedDist = distToHotspot / hotspotRadius;
+              const hotspotIntensity = Math.max(
+                0,
+                Math.pow(1.0 - Math.min(1.0, normalizedDist), 2)
+              );
+
+              if (hotspotIntensity > 0) {
+                const hotspotStrengths = [1.0, 0.85, 0.7];
+                const hotspotStrength = hotspotStrengths[h] || 1.0;
+                totalHotspotContribution += hotspotIntensity;
+                weightedStrength += hotspotIntensity * hotspotStrength;
+              }
+            }
+
+            // Blend hotspot contributions smoothly
+            const avgHotspotStrength =
+              totalHotspotContribution > 0
+                ? weightedStrength / totalHotspotContribution
+                : 0.7; // Default if no hotspots
+
+            // Combine horizontal and vertical intensity with smooth blending
+            horizontalIntensity =
+              0.3 + totalHotspotContribution * 0.7 * avgHotspotStrength;
+            const heatIntensity = verticalIntensity * horizontalIntensity;
+
+            // Accumulate thermal energy based on heat intensity
+            // Scale by dtStep to make it frame-rate independent (rate per second)
+            const thermalGain = thermalGainRate * heatIntensity * dtStep;
+            p.thermalEnergy = Math.min(
+              1.0,
+              (p.thermalEnergy || 0) + thermalGain
+            );
+
+            // Add upward acceleration for heated particles (buoyancy effect)
+            // Heated particles naturally want to rise - use acceleration to overcome gravity
+            // Thermal energy provides upward force that opposes gravity
+            // At thermalEnergy = 0.4, upwardAccel = -1600, which overcomes gravity (900)
+            const upwardAccel = p.thermalEnergy * -2000; // Negative Y = upward, strong enough to overcome gravity
+            p.acc[1] += upwardAccel;
+
+            // Also add some direct upward velocity boost for immediate effect
+            if (p.thermalEnergy > 0.2) {
+              const upwardVelocityBoost = p.thermalEnergy * -40; // Additional upward boost
+              p.vel[1] += upwardVelocityBoost * dtStep;
+            }
+
+            // Add vibration: particles with high thermal energy vibrate more
+            // This helps them break free from cohesive forces
+            // Increased strength for visibility - vibration scales with thermal energy
+            const vibrationStrength = p.thermalEnergy * 120; // Increased from 30 for visibility
+            const vibrationX = (Math.random() - 0.5) * vibrationStrength;
+            const vibrationY = (Math.random() - 0.5) * vibrationStrength;
+            p.acc[0] += vibrationX;
+            p.acc[1] += vibrationY;
+
+            // Apply heating scaled by intensity
+            const scaledAccel = aH * heatIntensity;
+            const vx = p.vel[0],
+              vy = p.vel[1];
+            const sp = Math.hypot(vx, vy);
+            if (sp > 1e-3) {
+              p.acc[0] += (vx / sp) * scaledAccel;
+              p.acc[1] += (vy / sp) * scaledAccel;
+            } else {
+              const ang = Math.random() * Math.PI * 2;
+              p.acc[0] += Math.cos(ang) * scaledAccel;
+              p.acc[1] += Math.sin(ang) * scaledAccel;
+            }
+          } else {
+            // Dissipate thermal energy when not in heating zone
+            // Scale by dtStep to make it frame-rate independent
+            p.thermalEnergy = Math.max(
+              0,
+              (p.thermalEnergy || 0) - thermalDissipationRate * dtStep
+            );
+            // Particles with thermal energy still vibrate (they carry heat with them)
+            if (p.thermalEnergy > 0.1) {
+              // Add upward acceleration for particles carrying thermal energy
+              const upwardAccel = p.thermalEnergy * -1800; // Slightly less than in heating zone
+              p.acc[1] += upwardAccel;
+
+              // Also add upward velocity boost for immediate effect
+              if (p.thermalEnergy > 0.2) {
+                const upwardVelocityBoost = p.thermalEnergy * -35;
+                p.vel[1] += upwardVelocityBoost * dtStep;
+              }
+
+              const vibrationStrength = p.thermalEnergy * 80; // Increased from 20 for visibility
+              const vibrationX = (Math.random() - 0.5) * vibrationStrength;
+              const vibrationY = (Math.random() - 0.5) * vibrationStrength;
+              p.acc[0] += vibrationX;
+              p.acc[1] += vibrationY;
+            }
+          }
         }
       } else {
-        if (
-          nowS > p.gasUntil ||
-          v2 < 0.6 * vGas2 ||
-          p.localNeighbors >= rhoMin
-        ) {
-          p.state = "liquid";
+        // When heating is off, gradually dissipate thermal energy
+        const thermalDissipationRate = 0.02; // Rate per second (matches heating dissipation)
+        for (let i = 0; i < this.particles.length; i++) {
+          const p = this.particles[i];
+          // Ensure thermalEnergy is initialized
+          if (p.thermalEnergy === undefined) p.thermalEnergy = 0;
+          p.thermalEnergy = Math.max(
+            0,
+            (p.thermalEnergy || 0) - thermalDissipationRate * dtStep
+          );
+        }
+      }
+      // Buoyancy (reduced for more realistic behavior)
+      if (this.gravityOn) {
+        for (let i = 0; i < this.particles.length; i++) {
+          const p = this.particles[i];
+          if (p.state === "gas") p.acc[1] -= 300; // Reduced from 600
+        }
+      }
+      // Integrate
+      for (let i = 0; i < this.particles.length; i++) {
+        const p = this.particles[i];
+        p.vel[0] += (p.acc[0] / p.mass) * dtStep;
+        p.vel[1] += (p.acc[1] / p.mass) * dtStep;
+        p.pos[0] += p.vel[0] * dtStep;
+        p.pos[1] += p.vel[1] * dtStep;
+
+        // Add direct velocity vibration for heated particles (more visible)
+        // This creates the jittery vibration effect
+        const thermalEnergy = p.thermalEnergy || 0;
+        if (thermalEnergy > 0.1) {
+          // Frame-independent vibration - scales with thermal energy
+          const vibVelStrength = thermalEnergy * 8; // Velocity units per frame
+          p.vel[0] += (Math.random() - 0.5) * vibVelStrength;
+          p.vel[1] += (Math.random() - 0.5) * vibVelStrength;
+        }
+
+        this.handleWalls(p);
+      }
+      // Collisions iterations
+      for (let it = 0; it < 5; it++) {
+        this.resolveCollisions();
+        // Re-clamp particles to walls after collision resolution
+        // (collision resolution can push particles outside bounds)
+        for (let i = 0; i < this.particles.length; i++) {
+          this.handleWalls(this.particles[i]);
+        }
+      }
+      // State update - boiling behavior with thermal energy and hysteresis
+      const epsBase = 0.15 + 0.25 * (this.params.viscosity || 0);
+      const c1 = 120,
+        c2 = 10;
+      const rhoMin = 3;
+      const nowS = performance.now();
+      const minStateDuration = 300; // Minimum time in state before transitioning (ms)
+
+      // Higher energy threshold for escaping dense liquid (boiling)
+      const escapeMultiplier = 1.5;
+      const thermalBoilingThreshold = 0.4; // Lowered from 0.6 - thermal energy needed to boil
+
+      for (let i = 0; i < this.particles.length; i++) {
+        const p = this.particles[i];
+        const v2 = p.vel[0] * p.vel[0] + p.vel[1] * p.vel[1];
+        const vGas2 = c1 * (this.params.kT || 0) + c2 * epsBase;
+        const thermalEnergy = p.thermalEnergy || 0;
+        const timeSinceStateChange = nowS - (p.lastStateChange || 0);
+
+        if (p.state === "liquid") {
+          // Require minimum time in liquid state before transitioning
+          // But allow very hot particles to transition faster
+          const hotParticle = thermalEnergy > 0.7;
+          const effectiveMinDuration = hotParticle
+            ? minStateDuration * 0.5
+            : minStateDuration;
+          if (timeSinceStateChange < effectiveMinDuration) continue;
+
+          // Boiling: Need both high thermal energy AND high kinetic energy
+          // Surface particles can evaporate more easily
+          if (p.localNeighbors < rhoMin) {
+            // Surface/edge particles: normal evaporation threshold
+            const surfaceThreshold = vGas2 * 0.9; // Slightly easier than bulk
+            if (v2 > surfaceThreshold && thermalEnergy > 0.2) {
+              p.state = "gas";
+              p.gasUntil = nowS + 1500;
+              p.lastStateChange = nowS;
+              // Give upward boost to help escape
+              if (p.vel[1] < 50) {
+                p.vel[1] -= 30;
+              }
+            }
+          } else {
+            // Dense liquid particles: need thermal energy + high kinetic energy to boil
+            // Make kinetic energy threshold scale with thermal energy - hotter particles boil easier
+            const baseEscapeThreshold = vGas2 * escapeMultiplier;
+            // When thermal energy is high, reduce kinetic energy requirement
+            const thermalBonus = thermalEnergy * 0.5; // Increased from 0.4 - up to 50% reduction
+            const escapeThreshold = baseEscapeThreshold * (1.0 - thermalBonus);
+
+            // Very hot particles can boil with lower kinetic energy
+            const veryHotBonus = thermalEnergy > 0.7 ? 0.2 : 0; // Extra 20% reduction for very hot
+            const finalThreshold = escapeThreshold * (1.0 - veryHotBonus);
+
+            // Boiling requires accumulated thermal energy from heating
+            if (
+              v2 > finalThreshold &&
+              thermalEnergy > thermalBoilingThreshold
+            ) {
+              p.state = "gas";
+              p.gasUntil = nowS + 2000;
+              p.lastStateChange = nowS;
+              // Give upward boost to help escape the liquid blob
+              if (p.vel[1] < 50) {
+                p.vel[1] -= 40;
+              }
+            }
+          }
+        } else {
+          // Gas particles: condense when they cool down
+          // Require minimum time in gas state before transitioning back
+          if (timeSinceStateChange < minStateDuration) continue;
+
+          const isRising = p.vel[1] < -10; // Moving upward significantly
+          const isNearTop = p.pos[1] < this.height * 0.2; // Top 20% of container
+
+          // Condensation thresholds (hysteresis - harder to condense than evaporate)
+          const condenseThreshold = isRising ? 0.3 * vGas2 : 0.5 * vGas2;
+          const thermalCondenseThreshold = 0.2; // Cool down before condensing
+
+          // Condense if: low energy, low thermal energy, high density (not rising), or reached top
+          if (
+            (v2 < condenseThreshold &&
+              thermalEnergy < thermalCondenseThreshold &&
+              !isRising) ||
+            (isNearTop &&
+              thermalEnergy < thermalCondenseThreshold &&
+              v2 < 0.8 * vGas2) ||
+            (p.localNeighbors >= rhoMin &&
+              !isRising &&
+              thermalEnergy < thermalCondenseThreshold)
+          ) {
+            p.state = "liquid";
+            p.lastStateChange = nowS;
+            // Reset thermal energy when condensing (unless still in heating zone)
+            if (p.pos[1] + p.radius < this.height * 0.9) {
+              p.thermalEnergy = Math.max(0, thermalEnergy * 0.5); // Reduce but don't fully reset
+            }
+          }
         }
       }
     }
-    // Collisions: run twice for stability
-    this.resolveCollisions();
-    this.resolveCollisions();
   }
 
   handleWalls(p) {
     const w = this.width;
     const h = this.height;
-    const r = p.radius || 6;
+    const r = p.radius || 3;
     const e = 0.2; // restitution
     const fx = 0.98; // floor friction
     if (p.pos[0] < r) {
@@ -444,36 +717,80 @@ class IMFSim {
   }
 
   resolveCollisions() {
-    const rMax = 14; // neighbor search radius for collisions
+    const rMax = 16; // neighbor search radius (increased for safety)
     // rebuild neighbor grid for collision pass
     this.grid.clear();
     for (let i = 0; i < this.particles.length; i++)
       this.grid.insert(this.particles[i]);
     const e = 0.2; // restitution
+    const mu = 0.3; // friction coefficient
+    const processed = new Set(); // Track processed pairs to avoid double-counting
     for (let i = 0; i < this.particles.length; i++) {
       const a = this.particles[i];
       const ax = a.pos[0];
       const ay = a.pos[1];
       this.grid.forNeighbors(ax, ay, rMax, (b) => {
         if (a === b) return;
+        // Find index of b
+        let j = -1;
+        for (let k = 0; k < this.particles.length; k++) {
+          if (this.particles[k] === b) {
+            j = k;
+            break;
+          }
+        }
+        if (j < 0) return; // Safety check
+        // Avoid processing same pair twice (always use smaller index first)
+        const pairKey = i < j ? `${i},${j}` : `${j},${i}`;
+        if (processed.has(pairKey)) return;
+        processed.add(pairKey);
         let dx = b.pos[0] - ax;
         let dy = b.pos[1] - ay;
-        if (dx > this.width / 2) dx -= this.width;
-        if (dx < -this.width / 2) dx += this.width;
-        if (dy > this.height / 2) dy -= this.height;
-        if (dy < -this.height / 2) dy += this.height;
         const dist = Math.hypot(dx, dy) || 1e-9;
-        const minDist = (a.radius || 6) + (b.radius || 6);
+        const minDist = (a.radius || 3) + (b.radius || 3);
         if (dist < minDist) {
           const nx = dx / dist;
           const ny = dy / dist;
           const overlap = minDist - dist;
-          // position correction (split)
-          const corr = overlap * 0.5;
-          a.pos[0] -= nx * corr;
-          a.pos[1] -= ny * corr;
-          b.pos[0] += nx * corr;
-          b.pos[1] += ny * corr;
+          // position correction (split, but fully resolve per iteration)
+          const invMa = 1 / (a.mass || 1);
+          const invMb = 1 / (b.mass || 1);
+          const invSum = invMa + invMb;
+          let moveA = overlap * (invMa / Math.max(1e-9, invSum));
+          let moveB = overlap * (invMb / Math.max(1e-9, invSum));
+          // Shock propagation against floor: favor moving the non-grounded body
+          const rA = a.radius || 3;
+          const rB = b.radius || 3;
+          const groundedA = a.pos[1] >= this.height - rA - 0.6;
+          const groundedB = b.pos[1] >= this.height - rB - 0.6;
+          // If pushing B further into floor (ny>0), don't move B; move A fully
+          if (!groundedA && groundedB && ny > 0) {
+            moveA = overlap;
+            moveB = 0;
+          }
+          // If pushing A into floor (ny<0), don't move A; move B fully
+          if (groundedA && !groundedB && ny < 0) {
+            moveB = overlap;
+            moveA = 0;
+          }
+          a.pos[0] -= nx * moveA;
+          a.pos[1] -= ny * moveA;
+          b.pos[0] += nx * moveB;
+          b.pos[1] += ny * moveB;
+          // Safety check: ensure minimum separation is maintained (handle floating point errors)
+          const dx2 = b.pos[0] - a.pos[0];
+          const dy2 = b.pos[1] - a.pos[1];
+          const dist2 = Math.hypot(dx2, dy2) || 1e-9;
+          if (dist2 < minDist * 0.99) {
+            // Still overlapping, apply additional correction
+            const overlap2 = minDist - dist2;
+            const nx2 = dx2 / dist2;
+            const ny2 = dy2 / dist2;
+            a.pos[0] -= nx2 * overlap2 * 0.5;
+            a.pos[1] -= ny2 * overlap2 * 0.5;
+            b.pos[0] += nx2 * overlap2 * 0.5;
+            b.pos[1] += ny2 * overlap2 * 0.5;
+          }
           // velocity impulse along normal
           const rvx = b.vel[0] - a.vel[0];
           const rvy = b.vel[1] - a.vel[1];
@@ -486,6 +803,59 @@ class IMFSim {
             a.vel[1] -= jy / (a.mass || 1);
             b.vel[0] += jx / (b.mass || 1);
             b.vel[1] += jy / (b.mass || 1);
+            // friction impulse along tangent
+            const rvx2 = b.vel[0] - a.vel[0];
+            const rvy2 = b.vel[1] - a.vel[1];
+            // tangent = rv - (rv·n) n
+            let tx = rvx2 - (rvx2 * nx + rvy2 * ny) * nx;
+            let ty = rvy2 - (rvx2 * nx + rvy2 * ny) * ny;
+            const tl = Math.hypot(tx, ty);
+            if (tl > 1e-6) {
+              tx /= tl;
+              ty /= tl;
+              const jt = -mu * Math.abs(j);
+              const jtx = jt * tx;
+              const jty = jt * ty;
+              a.vel[0] -= jtx / (a.mass || 1);
+              a.vel[1] -= jty / (a.mass || 1);
+              b.vel[0] += jtx / (b.mass || 1);
+              b.vel[1] += jty / (b.mass || 1);
+            }
+            // Thermal conduction: transfer kinetic energy between particles
+            // After collision, transfer a fraction of energy difference to simulate heat flow
+            const ma = a.mass || 1;
+            const mb = b.mass || 1;
+            const keA = 0.5 * ma * (a.vel[0] * a.vel[0] + a.vel[1] * a.vel[1]);
+            const keB = 0.5 * mb * (b.vel[0] * b.vel[0] + b.vel[1] * b.vel[1]);
+            const keTotal = keA + keB;
+
+            // Transfer coefficient: fraction of energy difference transferred per collision
+            const transferCoeff = 0.15;
+            const keDiff = keA - keB;
+            const dE = transferCoeff * keDiff;
+
+            // Only transfer if there's a meaningful energy difference and total KE is positive
+            if (Math.abs(dE) > 0.1 && keTotal > 0.5) {
+              const newKeA = Math.max(0.5, keA - dE);
+              const newKeB = Math.max(0.5, keB + dE);
+
+              // Calculate velocity magnitudes
+              const vMagA = Math.hypot(a.vel[0], a.vel[1]);
+              const vMagB = Math.hypot(b.vel[0], b.vel[1]);
+
+              if (vMagA > 1e-6 && vMagB > 1e-6) {
+                // Scale velocities to achieve target kinetic energies
+                // This preserves direction while transferring energy
+                const scaleA = Math.sqrt((2 * newKeA) / (ma * vMagA * vMagA));
+                const scaleB = Math.sqrt((2 * newKeB) / (mb * vMagB * vMagB));
+
+                // Apply scaling (small adjustments preserve momentum approximately)
+                a.vel[0] *= scaleA;
+                a.vel[1] *= scaleA;
+                b.vel[0] *= scaleB;
+                b.vel[1] *= scaleB;
+              }
+            }
           }
         }
       });
@@ -506,14 +876,122 @@ class IMFSim {
       "#0c121d";
     ctx.fillRect(0, 0, w, h);
 
-    // Particles (solid spheres)
+    // Bottom heat source visual indicator (stovetop - bottom 10% with hotspots)
+    if (this.heatingOn) {
+      const gradientHeight = this.height * 0.1; // bottom 10% of container
+      const hotspotCount = 3;
+      const hotspotSpacing = w / (hotspotCount + 1);
+      const hotspotStrengths = [1.0, 0.85, 0.7];
+
+      // Draw hotspot pattern
+      for (let hotspotIdx = 0; hotspotIdx < hotspotCount; hotspotIdx++) {
+        const hotspotX = hotspotSpacing * (hotspotIdx + 1);
+        const hotspotRadius = w * 0.15;
+        const hotspotStrength = hotspotStrengths[hotspotIdx];
+
+        // Create radial gradient for each hotspot
+        const hotspotGradient = ctx.createRadialGradient(
+          hotspotX,
+          h,
+          0, // center
+          hotspotX,
+          h,
+          hotspotRadius // outer radius
+        );
+
+        // Base intensity scaled by hotspot strength
+        const maxIntensity = 0.5 * hotspotStrength;
+        hotspotGradient.addColorStop(0, `rgba(255, 100, 0, ${maxIntensity})`);
+        hotspotGradient.addColorStop(
+          0.5,
+          `rgba(255, 100, 0, ${maxIntensity * 0.6})`
+        );
+        hotspotGradient.addColorStop(1, "rgba(255, 100, 0, 0)");
+
+        // Draw vertical gradient overlay for each hotspot
+        const verticalGradient = ctx.createLinearGradient(
+          0,
+          h - gradientHeight,
+          0,
+          h
+        );
+        verticalGradient.addColorStop(0, "rgba(255, 100, 0, 0)");
+        verticalGradient.addColorStop(
+          0.5,
+          `rgba(255, 100, 0, ${maxIntensity * 0.3})`
+        );
+        verticalGradient.addColorStop(1, `rgba(255, 100, 0, ${maxIntensity})`);
+
+        // Draw hotspot area
+        ctx.fillStyle = hotspotGradient;
+        ctx.beginPath();
+        ctx.arc(hotspotX, h, hotspotRadius, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Draw vertical gradient overlay
+        ctx.fillStyle = verticalGradient;
+        ctx.fillRect(
+          hotspotX - hotspotRadius,
+          h - gradientHeight,
+          hotspotRadius * 2,
+          gradientHeight
+        );
+      }
+
+      // Add subtle base heating across entire bottom
+      const baseGradient = ctx.createLinearGradient(
+        0,
+        h - gradientHeight,
+        0,
+        h
+      );
+      baseGradient.addColorStop(0, "rgba(255, 100, 0, 0)");
+      baseGradient.addColorStop(0.7, "rgba(255, 100, 0, 0.1)");
+      baseGradient.addColorStop(1, "rgba(255, 100, 0, 0.2)");
+      ctx.fillStyle = baseGradient;
+      ctx.fillRect(0, h - gradientHeight, w, gradientHeight);
+    }
+
+    // Particles (solid spheres) with temperature-based coloring
     const base = this.params.color || "#5ac8fa";
-    ctx.fillStyle = base;
+    // Warm colors for gas particles and heated particles (red/orange)
+    const warmColor = "#ff6b35";
+    // Cool colors for liquid particles (use base color)
+    const coolColor = base;
+
+    // Helper function to interpolate between two hex colors
+    function lerpColor(color1, color2, t) {
+      const c1 = parseInt(color1.slice(1), 16);
+      const c2 = parseInt(color2.slice(1), 16);
+      const r1 = (c1 >> 16) & 255;
+      const g1 = (c1 >> 8) & 255;
+      const b1 = c1 & 255;
+      const r2 = (c2 >> 16) & 255;
+      const g2 = (c2 >> 8) & 255;
+      const b2 = c2 & 255;
+      const r = Math.round(r1 + (r2 - r1) * t);
+      const g = Math.round(g1 + (g2 - g1) * t);
+      const b = Math.round(b1 + (b2 - b1) * t);
+      return `rgb(${r}, ${g}, ${b})`;
+    }
+
     ctx.strokeStyle = "rgba(0,0,0,0.2)";
     ctx.lineWidth = 1;
     for (let i = 0; i < this.particles.length; i++) {
       const p = this.particles[i];
-      const r = p.radius || 6;
+      const r = p.radius || 3;
+      const thermalEnergy = p.thermalEnergy || 0;
+
+      // Color based on particle state and thermal energy
+      if (p.state === "gas") {
+        ctx.fillStyle = warmColor;
+      } else {
+        // Interpolate between cool and warm based on thermal energy
+        // Liquid particles become orange as they heat up
+        const colorT = Math.min(1.0, thermalEnergy * 1.5); // Scale thermal energy for color
+        ctx.fillStyle = lerpColor(coolColor, warmColor, colorT);
+      }
+
       ctx.beginPath();
       ctx.arc(p.pos[0], p.pos[1], r, 0, Math.PI * 2);
       ctx.fill();
@@ -575,7 +1053,7 @@ class IMFSim {
     // Build density grid
     for (let i = 0; i < this.particles.length; i++) {
       const p = this.particles[i];
-      const r = p.radius || 6;
+      const r = p.radius || 3;
       const sigma = r * 1.6;
       const sigma2 = sigma * sigma;
       const minX = Math.max(0, Math.floor((p.pos[0] - 3 * sigma) / cellSize));
@@ -777,6 +1255,98 @@ class IMFSim {
     if (this.frameId) cancelAnimationFrame(this.frameId);
     this.frameId = 0;
   }
+
+  getParticleDebugData(particle) {
+    if (!particle) return null;
+
+    const v2 =
+      particle.vel[0] * particle.vel[0] + particle.vel[1] * particle.vel[1];
+    const ke = 0.5 * (particle.mass || 1) * v2;
+    const speed = Math.hypot(particle.vel[0], particle.vel[1]);
+    const thermalEnergy = particle.thermalEnergy || 0;
+
+    // Calculate forces from nearby particles
+    let totalLJForce = 0;
+    let totalHBForce = 0;
+    let totalDipoleForce = 0;
+    let nearestNeighborDist = Infinity;
+    let nearestNeighbor = null;
+    const rMax = 28;
+    const ax = particle.pos[0];
+    const ay = particle.pos[1];
+
+    this.grid.forNeighbors(ax, ay, rMax, (b) => {
+      if (particle === b) return;
+      const dx = b.pos[0] - ax;
+      const dy = b.pos[1] - ay;
+      const rVec = [dx, dy];
+      const dist = Math.hypot(dx, dy);
+
+      if (dist < nearestNeighborDist) {
+        nearestNeighborDist = dist;
+        nearestNeighbor = b;
+      }
+
+      const fLJ = this.ljForce(rVec);
+      const fHB = this.hbForce(rVec);
+      const fDP = this.dipoleForce(rVec);
+
+      totalLJForce += Math.hypot(fLJ[0], fLJ[1]);
+      totalHBForce += Math.hypot(fHB[0], fHB[1]);
+      totalDipoleForce += Math.hypot(fDP[0], fDP[1]);
+    });
+
+    // Check if in heating zone
+    const r = particle.radius || 3;
+    const particleBottom = particle.pos[1] + r;
+    const heatingZoneHeight = this.height * 0.1;
+    const heatingZoneTop = this.height - heatingZoneHeight;
+    const inHeatingZone = particleBottom >= heatingZoneTop;
+
+    // Calculate distance from bottom
+    const distFromBottom = this.height - particleBottom;
+
+    return {
+      index: this.particles.indexOf(particle),
+      position: {
+        x: particle.pos[0].toFixed(2),
+        y: particle.pos[1].toFixed(2),
+      },
+      velocity: {
+        x: particle.vel[0].toFixed(2),
+        y: particle.vel[1].toFixed(2),
+        speed: speed.toFixed(2),
+      },
+      kineticEnergy: ke.toFixed(2),
+      thermalEnergy: thermalEnergy.toFixed(3),
+      state: particle.state,
+      mass: particle.mass || 1,
+      radius: r,
+      localNeighbors: particle.localNeighbors || 0,
+      forces: {
+        lj: totalLJForce.toFixed(2),
+        hb: totalHBForce.toFixed(2),
+        dipole: totalDipoleForce.toFixed(2),
+        total: (totalLJForce + totalHBForce + totalDipoleForce).toFixed(2),
+      },
+      nearestNeighbor: {
+        distance: nearestNeighborDist.toFixed(2),
+        state: nearestNeighbor?.state || "none",
+      },
+      heating: {
+        inZone: inHeatingZone,
+        distFromBottom: distFromBottom.toFixed(2),
+        heatingZoneTop: heatingZoneTop.toFixed(2),
+      },
+      gasUntil: particle.gasUntil
+        ? (particle.gasUntil - performance.now()).toFixed(0)
+        : "N/A",
+      lastStateChange: particle.lastStateChange
+        ? (performance.now() - particle.lastStateChange).toFixed(0)
+        : "N/A",
+    };
+  }
+
   destroy() {
     this.stop();
     document.removeEventListener("visibilitychange", this.onVisibility);
@@ -1016,6 +1586,32 @@ export function mountIMFs(root) {
     .stack-sm { display: grid; gap: 8px; }
     .row { display: grid; gap: 8px; }
     .row.controls { display: flex; flex-wrap: wrap; gap: 8px; }
+    /* Debug panel styles */
+    .debug-panel { 
+      position: fixed; 
+      top: 20px; 
+      right: 20px; 
+      width: 320px; 
+      max-height: 80vh; 
+      overflow-y: auto; 
+      background: #ffffff; 
+      border: 2px solid #dc2626; 
+      border-radius: 8px; 
+      padding: 12px; 
+      font-family: 'IBM Plex Mono', monospace; 
+      font-size: 11px; 
+      z-index: 1000;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      display: none;
+    }
+    .debug-panel.active { display: block; }
+    .debug-panel h4 { margin: 0 0 8px 0; color: #dc2626; font-size: 13px; font-weight: 600; }
+    .debug-panel .debug-section { margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid #e5e7eb; }
+    .debug-panel .debug-section:last-child { border-bottom: none; }
+    .debug-panel .debug-row { display: flex; justify-content: space-between; margin: 4px 0; }
+    .debug-panel .debug-label { color: #6b7280; font-weight: 600; }
+    .debug-panel .debug-value { color: #111827; }
+    .debug-panel .debug-note { color: #9ca3af; font-size: 10px; margin-top: 4px; font-style: italic; }
   `;
   shadow.appendChild(shim);
 
@@ -1045,7 +1641,7 @@ export function mountIMFs(root) {
           <div class="stack-sm">
             <div class="field"><label class="label">Temperature (kT)</label><input id="s-temp" class="range" type="range" min="0" max="3" step="0.05" value="1.00"><span class="muted" id="v-temp"></span></div>
             <div class="field"><label class="label">Viscosity (γ)</label><input id="s-visc" class="range" type="range" min="0" max="3" step="0.05" value="1.20"><span class="muted" id="v-visc"></span></div>
-            <div class="field"><label class="label">Particles (N)</label><input id="s-n" class="range" type="range" min="40" max="220" step="5" value="120"><span class="muted" id="v-n"></span></div>
+            <div class="field"><label class="label">Particles (N)</label><input id="s-n" class="range" type="range" min="40" max="500" step="10" value="200"><span class="muted" id="v-n"></span></div>
           </div>
           <div class="row controls" style="margin-top:8px;">
             <button id="b-play" class="btn">Play</button>
@@ -1057,11 +1653,15 @@ export function mountIMFs(root) {
         </div>
         <div class="stack-sm">
           <canvas id="imfs-sim" class="imfs-sim" width="900" height="420" aria-label="Intermolecular forces simulation" role="img"></canvas>
-          <div id="imfs-3d" class="imfs-3d" aria-label="3D molecule" role="img"></div>
           <canvas id="imfs-ke" class="imfs-ke" height="80" aria-label="Kinetic energy chart" role="img"></canvas>
+          <div id="imfs-3d" class="imfs-3d" aria-label="3D molecule" role="img"></div>
         </div>
       </div>
     </section>
+    <div id="debug-panel" class="debug-panel">
+      <h4>🔍 Particle Debug Info</h4>
+      <div id="debug-content"></div>
+    </div>
   `;
   shadow.appendChild(shell);
 
@@ -1083,6 +1683,8 @@ export function mountIMFs(root) {
     tContour: shadow.querySelector("#t-contour"),
     tShade: shadow.querySelector("#t-shade"),
     tHeat: shadow.querySelector("#t-heat"),
+    debugPanel: shadow.querySelector("#debug-panel"),
+    debugContent: shadow.querySelector("#debug-content"),
     // no thermostat box; KE is graphed below
   };
 
@@ -1337,6 +1939,186 @@ M  END
       refs.tHeat.classList.toggle("is-active", sim.heatingOn);
     });
 
+  // Debug panel functionality
+  let selectedParticle = null;
+  let debugUpdateInterval = null;
+
+  function updateDebugPanel() {
+    if (!refs.debugPanel || !refs.debugContent) return;
+
+    if (!selectedParticle) {
+      refs.debugPanel.classList.remove("active");
+      if (debugUpdateInterval) {
+        clearInterval(debugUpdateInterval);
+        debugUpdateInterval = null;
+      }
+      return;
+    }
+
+    // Rebuild grid for force calculations
+    sim.grid.clear();
+    for (let i = 0; i < sim.particles.length; i++) {
+      sim.grid.insert(sim.particles[i]);
+    }
+
+    const data = sim.getParticleDebugData(selectedParticle);
+    if (!data) return;
+
+    refs.debugPanel.classList.add("active");
+
+    refs.debugContent.innerHTML = `
+      <div class="debug-section">
+        <div class="debug-row"><span class="debug-label">Index:</span><span class="debug-value">${
+          data.index
+        }</span></div>
+        <div class="debug-row"><span class="debug-label">State:</span><span class="debug-value">${
+          data.state
+        }</span></div>
+        <div class="debug-row"><span class="debug-label">Mass:</span><span class="debug-value">${
+          data.mass
+        }</span></div>
+        <div class="debug-row"><span class="debug-label">Radius:</span><span class="debug-value">${
+          data.radius
+        }</span></div>
+      </div>
+      
+      <div class="debug-section">
+        <h4>Position</h4>
+        <div class="debug-row"><span class="debug-label">X:</span><span class="debug-value">${
+          data.position.x
+        }</span></div>
+        <div class="debug-row"><span class="debug-label">Y:</span><span class="debug-value">${
+          data.position.y
+        }</span></div>
+        <div class="debug-row"><span class="debug-label">Dist from bottom:</span><span class="debug-value">${
+          data.heating.distFromBottom
+        }</span></div>
+      </div>
+      
+      <div class="debug-section">
+        <h4>Velocity</h4>
+        <div class="debug-row"><span class="debug-label">Vx:</span><span class="debug-value">${
+          data.velocity.x
+        }</span></div>
+        <div class="debug-row"><span class="debug-label">Vy:</span><span class="debug-value">${
+          data.velocity.y
+        }</span></div>
+        <div class="debug-row"><span class="debug-label">Speed:</span><span class="debug-value">${
+          data.velocity.speed
+        }</span></div>
+      </div>
+      
+      <div class="debug-section">
+        <h4>Energy</h4>
+        <div class="debug-row"><span class="debug-label">Kinetic Energy:</span><span class="debug-value">${
+          data.kineticEnergy
+        }</span></div>
+        <div class="debug-row"><span class="debug-label">Thermal Energy:</span><span class="debug-value">${
+          data.thermalEnergy
+        }</span></div>
+      </div>
+      
+      <div class="debug-section">
+        <h4>Forces (Total Magnitude)</h4>
+        <div class="debug-row"><span class="debug-label">LJ Force:</span><span class="debug-value">${
+          data.forces.lj
+        }</span></div>
+        <div class="debug-row"><span class="debug-label">HB Force:</span><span class="debug-value">${
+          data.forces.hb
+        }</span></div>
+        <div class="debug-row"><span class="debug-label">Dipole Force:</span><span class="debug-value">${
+          data.forces.dipole
+        }</span></div>
+        <div class="debug-row"><span class="debug-label">Total Force:</span><span class="debug-value">${
+          data.forces.total
+        }</span></div>
+      </div>
+      
+      <div class="debug-section">
+        <h4>Neighbors</h4>
+        <div class="debug-row"><span class="debug-label">Local Neighbors:</span><span class="debug-value">${
+          data.localNeighbors
+        }</span></div>
+        <div class="debug-row"><span class="debug-label">Nearest Dist:</span><span class="debug-value">${
+          data.nearestNeighbor.distance
+        }</span></div>
+        <div class="debug-row"><span class="debug-label">Nearest State:</span><span class="debug-value">${
+          data.nearestNeighbor.state
+        }</span></div>
+      </div>
+      
+      <div class="debug-section">
+        <h4>Heating</h4>
+        <div class="debug-row"><span class="debug-label">In Heating Zone:</span><span class="debug-value">${
+          data.heating.inZone ? "Yes" : "No"
+        }</span></div>
+        <div class="debug-row"><span class="debug-label">Zone Top:</span><span class="debug-value">${
+          data.heating.heatingZoneTop
+        }</span></div>
+      </div>
+      
+      <div class="debug-section">
+        <h4>State Timing</h4>
+        <div class="debug-row"><span class="debug-label">Gas Until (ms):</span><span class="debug-value">${
+          data.gasUntil
+        }</span></div>
+        <div class="debug-row"><span class="debug-label">Last State Change (ms):</span><span class="debug-value">${
+          data.lastStateChange
+        }</span></div>
+      </div>
+      
+      <div class="debug-note">Click another particle to inspect it</div>
+    `;
+  }
+
+  // Click detection on canvas
+  refs.sim.addEventListener("click", (e) => {
+    const rect = refs.sim.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    // Find closest particle
+    let closestParticle = null;
+    let closestDist = Infinity;
+
+    for (let i = 0; i < sim.particles.length; i++) {
+      const p = sim.particles[i];
+      const dx = p.pos[0] - x;
+      const dy = p.pos[1] - y;
+      const dist = Math.hypot(dx, dy);
+      const r = p.radius || 3;
+
+      if (dist < r + 5 && dist < closestDist) {
+        // 5px click tolerance
+        closestDist = dist;
+        closestParticle = p;
+      }
+    }
+
+    // Clear existing interval
+    if (debugUpdateInterval) {
+      clearInterval(debugUpdateInterval);
+      debugUpdateInterval = null;
+    }
+
+    selectedParticle = closestParticle;
+    updateDebugPanel();
+
+    // Update debug panel continuously when particle is selected
+    if (selectedParticle && sim.running) {
+      debugUpdateInterval = setInterval(() => {
+        if (selectedParticle && sim.particles.includes(selectedParticle)) {
+          updateDebugPanel();
+        } else {
+          clearInterval(debugUpdateInterval);
+          debugUpdateInterval = null;
+          selectedParticle = null;
+          updateDebugPanel();
+        }
+      }, 100); // Update every 100ms
+    }
+  });
+
   // (Removed 2D/3D toggle handlers)
 
   // Init
@@ -1344,6 +2126,10 @@ M  END
   sim.params.color = scenarioColor("honey");
   sim.draw();
   sim.start();
+  // Set gravity button to active state (gravity is on by default)
+  if (refs.tGravity && sim.gravityOn) {
+    refs.tGravity.classList.add("is-active");
+  }
   // Attach KE graph canvas to sim
   try {
     const keCanvas = shadow.querySelector("#imfs-ke");
